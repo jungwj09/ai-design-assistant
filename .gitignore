@@ -1,0 +1,8 @@
+.env
+.env.local
+*.pyc
+__pycache__/
+output/
+test_samples/
+*.png
+*.jpg

@@ -1,0 +1,19 @@
+# Install basic requirements first
+-r requirements.txt
+
+# ML & Transformers (for local CLIP model)
+# Note: Install PyTorch separately based on your system:
+# CPU: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# CUDA 11.8: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+# CUDA 12.1: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.30.0
+
+# Optional: Advanced text processing
+scipy>=1.11.0
+nltk>=3.8.0
+
+# Optional: PDF processing for knowledge base
+PyPDF2>=3.0.0

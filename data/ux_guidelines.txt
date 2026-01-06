@@ -1,0 +1,19 @@
+User Experience Design Guidelines
+
+User-Centered Design:
+Always design with the end user in mind. Understand user needs, goals, and pain points through research and testing. Create user personas to guide design decisions. User journeys help visualize the complete experience and identify potential friction points. Accessibility should be built in from the start, not added as an afterthought.
+
+Information Architecture:
+Organize content logically and intuitively. Use clear navigation hierarchies with no more than 7±2 main categories. Implement breadcrumbs for complex sites. Search functionality should be prominently placed and robust. Card sorting exercises help understand how users naturally categorize information.
+
+Interaction Design:
+Provide immediate feedback for user actions. Loading indicators prevent uncertainty. Hover states and micro-interactions enhance engagement. Error messages should be clear, helpful, and suggest solutions. Confirmation dialogs prevent accidental destructive actions. Progressive disclosure reveals complexity gradually.
+
+Mobile-First and Responsive Design:
+Design for mobile devices first, then scale up. Touch targets should be minimum 44x44 pixels. Ensure sufficient spacing between interactive elements. Test designs on multiple devices and screen sizes. Consider thumb zones for mobile navigation. Responsive images and flexible layouts adapt seamlessly.
+
+Performance and Speed:
+Page load time significantly impacts user satisfaction and conversion. Optimize images and assets. Lazy loading improves initial load times. Minimize HTTP requests. Perceived performance matters—skeleton screens and progressive loading maintain user engagement during load times.
+
+Conversion Optimization:
+Clear, compelling calls-to-action drive user behavior. Reduce form fields to essentials. Build trust through social proof, testimonials, and security indicators. Remove friction from critical user flows. A/B testing validates design decisions with real user data.
