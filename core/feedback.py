@@ -39,28 +39,31 @@ class FeedbackGenerator:
             return chunks
         
         for file_path in self.knowledge_base_dir.glob("*.txt"):
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                
-                # Semantic Chunking: 단락 단위로 분할
-                paragraphs = content.split('\n\n')
-                
-                for para in paragraphs:
-                    para = para.strip()
-                    if len(para) > 50:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                    
+                    # Semantic Chunking: 단락 단위로 분할
+                    paragraphs = content.split('\n\n')
+                    
+                    for para in paragraphs:
+                        para = para.strip()
+                        if len(para) > 50:
+                            chunks.append({
+                                'source': file_path.name,
+                                'content': para,
+                                'type': 'semantic_chunk'
+                            })
+                    
+                    # Recursive Chunking: 전체 문서도 포함 (Parent)
+                    if len(content) > 100:
                         chunks.append({
                             'source': file_path.name,
-                            'content': para,
-                            'type': 'semantic_chunk'
+                            'content': content,
+                            'type': 'parent_chunk'
                         })
-                
-                # Recursive Chunking: 전체 문서도 포함 (Parent)
-                if len(content) > 100:
-                    chunks.append({
-                        'source': file_path.name,
-                        'content': content,
-                        'type': 'parent_chunk'
-                    })
+            except Exception as e:
+                print(f"[Feedback Warning] Failed to load {file_path}: {e}")
         
         return chunks
     
@@ -73,49 +76,47 @@ class FeedbackGenerator:
     ) -> List[str]:
         """
         Parent-Child Retriever 개념 적용
-        쿼리에 가장 관련된 지식 검색
+        쿼리에 가장 관련된 지식 검색 (키워드 기반)
+        
+        Note: 임베딩 API를 사용하지 않아 비용 절감
         """
-        # 간단한 임베딩 기반 검색 (OpenAI embeddings 사용)
         query_context = f"""
         Design Intent: {query}
         Current Issues: Low scores in {self._identify_weak_areas(scores)}
         Design Elements: {', '.join(analysis.get('segments', []))}
         """
         
-        try:
-            query_embedding = self.client.embeddings.create(
-                model="text-embedding-3-small",
-                input=query_context
-            ).data[0].embedding
+        # 키워드 추출
+        keywords = self._extract_keywords(query_context)
+        
+        # 관련성 점수 계산 (키워드 매칭)
+        relevant_chunks = []
+        
+        for chunk in self.knowledge_base:
+            content_lower = chunk['content'].lower()
+            relevance_score = sum(1 for kw in keywords if kw in content_lower)
             
-            relevant_chunks = []
-            
-            keywords = self._extract_keywords(query_context)
-            
-            for chunk in self.knowledge_base:
-                content_lower = chunk['content'].lower()
-                relevance_score = sum(1 for kw in keywords if kw in content_lower)
-                
-                if relevance_score > 0:
-                    relevant_chunks.append((relevance_score, chunk['content']))
-            
-            # 상위 k개 선택
-            relevant_chunks.sort(reverse=True, key=lambda x: x[0])
-            top_chunks = [chunk[1] for chunk in relevant_chunks[:top_k]]
-            
-            return top_chunks if top_chunks else [self.knowledge_base[0]['content']]
-            
-        except Exception as e:
-            print(f"[Feedback Warning] Knowledge retrieval failed: {e}")
-            # 폴백: 첫 번째 청크 반환
-            return [self.knowledge_base[0]['content']] if self.knowledge_base else []
+            if relevance_score > 0:
+                relevant_chunks.append((relevance_score, chunk['content']))
+        
+        # 상위 k개 선택
+        relevant_chunks.sort(reverse=True, key=lambda x: x[0])
+        top_chunks = [chunk[1] for chunk in relevant_chunks[:top_k]]
+        
+        # 폴백: 관련 청크가 없으면 첫 번째 청크 반환
+        if not top_chunks and self.knowledge_base:
+            top_chunks = [self.knowledge_base[0]['content']]
+        
+        return top_chunks
     
     def _extract_keywords(self, text: str) -> List[str]:
         """간단한 키워드 추출"""
         keywords = [
             'color', 'layout', 'typography', 'contrast', 'hierarchy',
             'balance', 'whitespace', 'alignment', 'consistency', 'visual',
-            'modern', 'minimal', 'bold', 'elegant', 'professional'
+            'modern', 'minimal', 'bold', 'elegant', 'professional',
+            'button', 'navigation', 'header', 'footer', 'text',
+            'image', 'icon', 'form', 'card', 'grid'
         ]
         return [kw for kw in keywords if kw in text.lower()]
     
@@ -185,9 +186,14 @@ class FeedbackGenerator:
             print("[Feedback] Feedback generated successfully")
             return feedback
             
+        except openai.APIError as e:
+            print(f"[Feedback Error] OpenAI API error: {e}")
+            return self._get_fallback_feedback(text_intent, similarity_scores)
         except Exception as e:
-            print(f"[Feedback Error] Generation failed: {e}")
-            return "Feedback generation temporarily unavailable. Please try again."
+            print(f"[Feedback Error] Unexpected error: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            return self._get_fallback_feedback(text_intent, similarity_scores)
     
     def _build_cot_prompt(
         self,
@@ -244,6 +250,38 @@ class FeedbackGenerator:
         """
         
         return prompt
+    
+    def _get_fallback_feedback(self, intent: str, scores: Dict) -> str:
+        """폴백 피드백 생성"""
+        overall_score = scores.get('overall_score', 50.0)
+        
+        if overall_score >= 70:
+            assessment = "The design shows good alignment with your intent."
+        elif overall_score >= 50:
+            assessment = "The design partially aligns with your intent but needs refinement."
+        else:
+            assessment = "The design requires significant improvements to match your intent."
+        
+        weak_areas = self._identify_weak_areas(scores)
+        
+        return f"""
+        Design Feedback for: "{intent}"
+        
+        Assessment: {assessment}
+        
+        Overall Score: {overall_score:.1f}/100
+        
+        Key Areas for Improvement:
+        - {weak_areas}
+        
+        Recommendations:
+        1. Review and refine the elements that scored below 70
+        2. Ensure visual consistency across all design elements
+        3. Consider user experience and accessibility principles
+        4. Test the design with your target audience
+        
+        Note: Detailed feedback generation temporarily unavailable. Please try again.
+        """
 
 
 if __name__ == "__main__":

@@ -5,6 +5,8 @@ from typing import Dict, Tuple
 import os
 from transformers import CLIPProcessor, CLIPModel
 import openai
+import json
+import re
 
 
 class SimilarityScorer:
@@ -105,6 +107,40 @@ class SimilarityScorer:
             }
         }
     
+    def _extract_json_from_response(self, text: str) -> Dict:
+        """
+        GPT 응답에서 JSON 객체를 안전하게 추출
+        
+        Args:
+            text: GPT 응답 텍스트
+            
+        Returns:
+            파싱된 JSON 딕셔너리
+            
+        Raises:
+            ValueError: JSON을 찾을 수 없거나 파싱 실패 시
+        """
+        # 1. 코드 블록 제거
+        text = re.sub(r'```json\s*', '', text)
+        text = re.sub(r'```\s*', '', text)
+        
+        # 2. JSON 객체 찾기 (중첩된 객체도 처리)
+        json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
+        
+        if not json_match:
+            raise ValueError("No JSON object found in response")
+        
+        json_str = json_match.group()
+        
+        # 3. JSON 파싱
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            # 파싱 실패 시 더 자세한 정보 제공
+            print(f"[Scorer Debug] Failed to parse JSON:")
+            print(f"Text: {json_str[:200]}...")
+            raise ValueError(f"JSON parsing failed: {e}")
+    
     def _calculate_with_openai(
         self, 
         image_path: str, 
@@ -154,17 +190,17 @@ class SimilarityScorer:
         - Layout Match: Effectiveness of layout structure
         - Style Match: Consistency with intended style
         
-        Respond ONLY with a JSON object:
+        CRITICAL: Respond with ONLY a valid JSON object, no other text before or after:
         {{
-            "overall_score": <float 0-100>,
-            "visual_alignment": <float 0-100>,
-            "semantic_alignment": <float 0-100>,
+            "overall_score": 75.5,
+            "visual_alignment": 72.0,
+            "semantic_alignment": 80.0,
             "detailed_scores": {{
-                "color_match": <float 0-100>,
-                "layout_match": <float 0-100>,
-                "style_match": <float 0-100>
+                "color_match": 70.0,
+                "layout_match": 75.0,
+                "style_match": 73.0
             }},
-            "reasoning": "<brief explanation>"
+            "reasoning": "Brief explanation here"
         }}
         """
         
@@ -189,37 +225,55 @@ class SimilarityScorer:
                 temperature=0.3
             )
             
-            import json
             result_text = response.choices[0].message.content.strip()
             
-            # JSON 파싱
-            if "```json" in result_text:
-                result_text = result_text.split("```json")[1].split("```")[0].strip()
-            elif "```" in result_text:
-                result_text = result_text.split("```")[1].split("```")[0].strip()
-            
-            scores = json.loads(result_text)
+            # JSON 추출 및 파싱
+            scores = self._extract_json_from_response(result_text)
             
             # reasoning 제거 (선택적)
             if 'reasoning' in scores:
                 print(f"[Scorer] Reasoning: {scores['reasoning']}")
                 del scores['reasoning']
             
+            # 필수 필드 검증
+            required_fields = ['overall_score', 'visual_alignment', 'semantic_alignment', 'detailed_scores']
+            for field in required_fields:
+                if field not in scores:
+                    raise ValueError(f"Missing required field: {field}")
+            
+            # detailed_scores 검증
+            required_detailed = ['color_match', 'layout_match', 'style_match']
+            for field in required_detailed:
+                if field not in scores['detailed_scores']:
+                    raise ValueError(f"Missing detailed score: {field}")
+            
             return scores
             
+        except openai.APIError as e:
+            print(f"[Scorer Error] OpenAI API error: {e}")
+            return self._get_fallback_scores()
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"[Scorer Error] Response parsing failed: {e}")
+            print(f"[Scorer Debug] Raw response: {result_text[:200] if 'result_text' in locals() else 'N/A'}...")
+            return self._get_fallback_scores()
         except Exception as e:
-            print(f"[Scorer Error] Similarity calculation failed: {e}")
-            # 폴백 점수
-            return {
-                'overall_score': 50.0,
-                'visual_alignment': 50.0,
-                'semantic_alignment': 50.0,
-                'detailed_scores': {
-                    'color_match': 50.0,
-                    'layout_match': 50.0,
-                    'style_match': 50.0
-                }
+            print(f"[Scorer Error] Unexpected error: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            return self._get_fallback_scores()
+    
+    def _get_fallback_scores(self) -> Dict[str, float]:
+        """폴백 점수 반환"""
+        return {
+            'overall_score': 50.0,
+            'visual_alignment': 50.0,
+            'semantic_alignment': 50.0,
+            'detailed_scores': {
+                'color_match': 50.0,
+                'layout_match': 50.0,
+                'style_match': 50.0
             }
+        }
     
     def generate_score_report(self, scores: Dict[str, float]) -> str:
         """점수 리포트 생성"""

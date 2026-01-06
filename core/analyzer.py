@@ -5,6 +5,9 @@ from typing import List, Dict, Tuple
 import base64
 from io import BytesIO
 import os
+import json
+import re
+
 
 class DesignAnalyzer:
     """
@@ -63,6 +66,49 @@ class DesignAnalyzer:
         image.save(buffered, format="PNG")
         return base64.b64encode(buffered.getvalue()).decode('utf-8')
     
+    def _extract_json_array(self, text: str) -> List[str]:
+        """
+        텍스트에서 JSON 배열을 안전하게 추출
+        
+        Args:
+            text: GPT 응답 텍스트
+            
+        Returns:
+            추출된 문자열 리스트
+        """
+        # 코드 블록 제거
+        text = re.sub(r'```json\s*|\s*```', '', text)
+        
+        # JSON 배열 찾기
+        json_match = re.search(r'\[.*?\]', text, re.DOTALL)
+        if json_match:
+            try:
+                return json.loads(json_match.group())
+            except json.JSONDecodeError as e:
+                print(f"[Analyzer Warning] JSON decode failed: {e}")
+        
+        # 폴백: 쉼표로 구분된 텍스트 파싱
+        # "Element1, Element2, Element3" 형식 처리
+        lines = text.split('\n')
+        elements = []
+        for line in lines:
+            # "- Element" 또는 "• Element" 형식
+            if line.strip().startswith(('-', '•', '*')):
+                element = line.strip().lstrip('-•*').strip()
+                if element:
+                    elements.append(element)
+            # "1. Element" 형식
+            elif re.match(r'^\d+\.\s+', line.strip()):
+                element = re.sub(r'^\d+\.\s+', '', line.strip())
+                if element:
+                    elements.append(element)
+        
+        if elements:
+            return elements
+        
+        # 최종 폴백: 쉼표로 분할
+        return [s.strip() for s in text.split(',') if s.strip()]
+    
     def _segment_image(self, image_base64: str) -> List[str]:
         """
         SAM2 개념: 이미지에서 주요 디자인 요소 분할
@@ -74,19 +120,22 @@ class DesignAnalyzer:
         
         prompt = """
         Analyze this design image and identify all distinct design elements/segments.
-        Follow the SAM2 (Segment Anything Model) approach:
+        Follow the SAM2 (Segment Anything Model) approach.
         
-        List each design element as a separate item:
-        - Buttons
-        - Text blocks
+        List each design element as a separate item. Look for:
+        - Buttons and CTAs
+        - Text blocks (headings, paragraphs)
         - Images/Icons
         - Background sections
         - Navigation elements
         - Form inputs
         - Cards or containers
+        - Headers/Footers
         
-        Return ONLY a comma-separated list of elements found.
-        Example: "Hero image, Navigation bar, CTA button, Text heading, Footer"
+        Return ONLY a JSON array of strings, with NO additional text or explanation:
+        ["Element 1", "Element 2", "Element 3", ...]
+        
+        Example: ["Hero image", "Navigation bar", "CTA button", "Text heading", "Footer"]
         """
         
         try:
@@ -106,15 +155,24 @@ class DesignAnalyzer:
                         ]
                     }
                 ],
-                max_tokens=500
+                max_tokens=500,
+                temperature=0.3
             )
             
             segments_text = response.choices[0].message.content.strip()
-            segments = [s.strip() for s in segments_text.split(',')]
+            segments = self._extract_json_array(segments_text)
+            
+            if not segments:
+                print("[Analyzer Warning] No segments extracted, using defaults")
+                return ["Main content area", "Text elements", "Visual elements"]
+            
             return segments
             
+        except openai.APIError as e:
+            print(f"[Analyzer Error] OpenAI API error during segmentation: {e}")
+            return ["Main content area", "Text elements", "Visual elements"]
         except Exception as e:
-            print(f"[Analyzer Error] Segmentation failed: {e}")
+            print(f"[Analyzer Error] Unexpected error during segmentation: {e}")
             return ["Main content area", "Text elements", "Visual elements"]
     
     def _extract_visual_features(self, image_base64: str, segments: List[str]) -> Dict[str, str]:
@@ -141,13 +199,17 @@ class DesignAnalyzer:
         4. Visual hierarchy (prominence, positioning)
         5. Style characteristics (modern, minimal, bold, etc.)
         
-        Format your response as:
+        Format your response EXACTLY as follows (use this structure):
         [Element Name]
         - Color: ...
         - Typography: ...
         - Shape: ...
         - Hierarchy: ...
         - Style: ...
+        
+        [Next Element Name]
+        - Color: ...
+        ...
         """
         
         try:
@@ -167,7 +229,8 @@ class DesignAnalyzer:
                         ]
                     }
                 ],
-                max_tokens=1500
+                max_tokens=1500,
+                temperature=0.3
             )
             
             features_text = response.choices[0].message.content
@@ -184,10 +247,17 @@ class DesignAnalyzer:
                 elif current_element and line:
                     features_dict[current_element] += line + "\n"
             
+            # 추출된 특징이 없으면 세그먼트에 기본값 할당
+            if not features_dict:
+                features_dict = {seg: "Visual features detected" for seg in segments}
+            
             return features_dict
             
+        except openai.APIError as e:
+            print(f"[Analyzer Error] OpenAI API error during feature extraction: {e}")
+            return {seg: "Visual analysis unavailable" for seg in segments}
         except Exception as e:
-            print(f"[Analyzer Error] Feature extraction failed: {e}")
+            print(f"[Analyzer Error] Unexpected error during feature extraction: {e}")
             return {seg: "Visual analysis unavailable" for seg in segments}
     
     def _analyze_composition(self, image_base64: str) -> str:
@@ -226,13 +296,17 @@ class DesignAnalyzer:
                         ]
                     }
                 ],
-                max_tokens=300
+                max_tokens=300,
+                temperature=0.3
             )
             
             return response.choices[0].message.content.strip()
             
+        except openai.APIError as e:
+            print(f"[Analyzer Error] OpenAI API error during composition analysis: {e}")
+            return "Overall composition analysis unavailable"
         except Exception as e:
-            print(f"[Analyzer Error] Composition analysis failed: {e}")
+            print(f"[Analyzer Error] Unexpected error during composition analysis: {e}")
             return "Overall composition analysis unavailable"
 
 
@@ -240,6 +314,7 @@ if __name__ == "__main__":
     analyzer = DesignAnalyzer()
     
     test_img = Image.new('RGB', (800, 600), color='white')
+    os.makedirs('test_samples', exist_ok=True)
     test_img.save('test_samples/test.png')
     
     result = analyzer.analyze_image('test_samples/test.png')

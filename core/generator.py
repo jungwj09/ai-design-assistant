@@ -14,13 +14,18 @@ class DesignGenerator:
     - 원본 이미지와 텍스트 프롬프트를 기반으로 개선된 디자인 생성
     """
     
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: str = None, quality: str = "standard"):
         """
         Args:
             api_key: OpenAI API 키 (DALL-E 3 사용)
+            quality: 이미지 품질 ("standard" 또는 "hd")
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.client = openai.OpenAI(api_key=self.api_key)
+        self.quality = quality if quality in ["standard", "hd"] else "standard"
+        
+        if self.quality == "hd":
+            print("[Generator] Using HD quality (higher cost)")
         
     def generate_improved_design(
         self,
@@ -53,16 +58,21 @@ class DesignGenerator:
             scores
         )
         
-        print(f"[Generator] Prompt: {generation_prompt[:100]}...")
+        # 프롬프트 길이 제한 (DALL-E 3: 4000자)
+        if len(generation_prompt) > 3900:
+            print(f"[Generator Warning] Prompt too long ({len(generation_prompt)} chars), truncating...")
+            generation_prompt = generation_prompt[:3900] + "..."
+        
+        print(f"[Generator] Prompt length: {len(generation_prompt)} chars")
+        print(f"[Generator] Prompt preview: {generation_prompt[:150]}...")
         
         # DALL-E 3로 이미지 생성
-        # 참고: DALL-E 3는 Image-to-Image를 직접 지원하지 않으므로 텍스트 프롬프트로 개선 방향을 명확히 지시
         try:
             response = self.client.images.generate(
                 model="dall-e-3",
                 prompt=generation_prompt,
                 size="1024x1024",
-                quality="standard",
+                quality=self.quality,
                 n=1,
             )
             
@@ -76,13 +86,19 @@ class DesignGenerator:
             print(f"[Generator] Image saved to: {output_path}")
             return output_path
             
-        except Exception as e:
-            print(f"[Generator Error] Generation failed: {e}")
-            
-            # 폴백: 원본 이미지에 텍스트 오버레이
+        except openai.APIError as e:
+            print(f"[Generator Error] OpenAI API error: {e}")
             return self._create_fallback_image(
                 original_image_path,
-                "Improved design generation unavailable"
+                "Improved design generation failed (API error)"
+            )
+        except Exception as e:
+            print(f"[Generator Error] Unexpected error: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            return self._create_fallback_image(
+                original_image_path,
+                "Improved design generation failed (unexpected error)"
             )
     
     def _build_generation_prompt(
@@ -101,50 +117,40 @@ class DesignGenerator:
         detailed = scores.get('detailed_scores', {})
         
         if detailed.get('color_match', 100) < 70:
-            weak_areas.append("color scheme")
+            weak_areas.append("color scheme needs improvement")
         if detailed.get('layout_match', 100) < 70:
-            weak_areas.append("layout structure")
+            weak_areas.append("layout structure needs refinement")
         if detailed.get('style_match', 100) < 70:
-            weak_areas.append("visual style")
+            weak_areas.append("visual style needs adjustment")
         
         # 개선 방향 추출 (피드백에서)
         improvements = self._extract_improvements_from_feedback(feedback)
         
-        # 프롬프트 구성
-        prompt = f"""
-        Create a professional UI/UX design that fulfills this intent: {intent}
+        # 기본 요소 추출
+        segments = analysis.get('segments', ['header', 'main content', 'footer'])
+        composition = analysis.get('overall_composition', 'Well-balanced and structured')
         
-        Design Requirements:
-        - Style: Modern, clean, and professional
-        - Elements to include: {', '.join(analysis.get('segments', ['header', 'main content', 'footer']))}
-        - Layout: {analysis.get('overall_composition', 'Well-balanced and structured')}
+        # 프롬프트 구성 (간결하게)
+        prompt_parts = [
+            f"Create a professional UI/UX design: {intent}",
+            f"Include elements: {', '.join(segments[:5])}",  # 최대 5개만
+        ]
         
-        Key Improvements Needed:
-        {improvements}
+        if weak_areas:
+            prompt_parts.append(f"Focus on: {', '.join(weak_areas)}")
         
-        Focus Areas (from analysis):
-        {', '.join(weak_areas) if weak_areas else 'Overall refinement'}
+        if improvements:
+            prompt_parts.append(f"Key improvements: {improvements[:500]}")  # 500자 제한
         
-        Technical Specifications:
-        - High contrast for readability
-        - Clear visual hierarchy
-        - Proper whitespace usage
-        - Consistent styling throughout
-        - Professional color palette
-        - Modern typography
+        prompt_parts.extend([
+            "Requirements: High contrast, clear hierarchy, proper whitespace, modern design",
+            "Style: Professional, clean, user-friendly"
+        ])
         
-        Output: A complete, polished UI design that directly addresses the user's intent.
-        """
-        
-        # 프롬프트 길이 제한 (DALL-E 3: 4000자)
-        if len(prompt) > 3900:
-            prompt = prompt[:3900] + "..."
-        
-        return prompt.strip()
+        return " | ".join(prompt_parts)
     
     def _extract_improvements_from_feedback(self, feedback: str) -> str:
-        """피드백에서 핵심 개선사항 추출"""
-        # 간단한 키워드 기반 추출
+        """피드백에서 핵심 개선사항 추출 (간결하게)"""
         lines = feedback.split('\n')
         improvements = []
         
@@ -157,29 +163,45 @@ class DesignGenerator:
             if any(keyword in line_lower for keyword in keywords):
                 # 불필요한 기호 제거
                 clean_line = line.strip('- •*#').strip()
-                if len(clean_line) > 20 and len(clean_line) < 200:
+                if 20 < len(clean_line) < 150:  # 너무 짧거나 긴 줄 제외
                     improvements.append(clean_line)
         
-        # 최대 5개까지만
-        improvements = improvements[:5]
+        # 최대 3개까지만 (프롬프트 길이 제한)
+        improvements = improvements[:3]
         
-        return '\n'.join([f"- {imp}" for imp in improvements]) if improvements else "- Enhance overall design quality and alignment with intent"
+        if improvements:
+            return '; '.join(improvements)
+        else:
+            return "Enhance overall design quality and alignment with user intent"
     
     def _download_and_save_image(self, image_url: str, original_path: str) -> str:
         """생성된 이미지 다운로드 및 저장"""
-        # 이미지 다운로드
-        response = requests.get(image_url)
-        img = Image.open(BytesIO(response.content))
-        
-        # 저장 경로 생성
-        original_name = os.path.basename(original_path)
-        name_without_ext = os.path.splitext(original_name)[0]
-        output_dir = os.path.dirname(original_path) or 'test_samples'
-        output_path = os.path.join(output_dir, f"{name_without_ext}_improved.png")
-        
-        # 저장
-        img.save(output_path)
-        return output_path
+        try:
+            # 이미지 다운로드
+            response = requests.get(image_url, timeout=30)
+            response.raise_for_status()
+            img = Image.open(BytesIO(response.content))
+            
+            # 저장 경로 생성
+            original_name = os.path.basename(original_path)
+            name_without_ext = os.path.splitext(original_name)[0]
+            output_dir = os.path.dirname(original_path) or 'output'
+            
+            # output 디렉토리가 없으면 생성
+            os.makedirs(output_dir, exist_ok=True)
+            
+            output_path = os.path.join(output_dir, f"{name_without_ext}_improved.png")
+            
+            # 저장
+            img.save(output_path)
+            return output_path
+            
+        except requests.RequestException as e:
+            print(f"[Generator Error] Failed to download image: {e}")
+            return self._create_fallback_image(original_path, "Download failed")
+        except Exception as e:
+            print(f"[Generator Error] Failed to save image: {e}")
+            return self._create_fallback_image(original_path, "Save failed")
     
     def _create_fallback_image(self, original_path: str, message: str) -> str:
         """폴백: 원본 이미지 복사 또는 간단한 개선"""
@@ -187,22 +209,44 @@ class DesignGenerator:
             img = Image.open(original_path)
             
             # 간단한 처리: 약간 밝게
-            from PIL import ImageEnhance
+            from PIL import ImageEnhance, ImageDraw, ImageFont
             enhancer = ImageEnhance.Brightness(img)
-            img_enhanced = enhancer.enhance(1.1)
+            img_enhanced = enhancer.enhance(1.05)
+            
+            # 워터마크 추가
+            draw = ImageDraw.Draw(img_enhanced)
+            text = "Generation unavailable - Original design"
+            
+            # 이미지 하단에 텍스트 추가
+            text_bbox = draw.textbbox((0, 0), text)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+            
+            x = (img_enhanced.width - text_width) // 2
+            y = img_enhanced.height - text_height - 20
+            
+            # 배경 사각형
+            draw.rectangle(
+                [x - 10, y - 5, x + text_width + 10, y + text_height + 5],
+                fill='rgba(0, 0, 0, 128)'
+            )
+            draw.text((x, y), text, fill='white')
             
             # 저장
             original_name = os.path.basename(original_path)
             name_without_ext = os.path.splitext(original_name)[0]
-            output_dir = os.path.dirname(original_path) or 'test_samples'
+            output_dir = os.path.dirname(original_path) or 'output'
+            os.makedirs(output_dir, exist_ok=True)
             output_path = os.path.join(output_dir, f"{name_without_ext}_improved.png")
             
             img_enhanced.save(output_path)
             print(f"[Generator] Fallback image created: {output_path}")
+            print(f"[Generator] Reason: {message}")
             return output_path
             
         except Exception as e:
-            print(f"[Generator Error] Fallback failed: {e}")
+            print(f"[Generator Error] Fallback creation failed: {e}")
+            # 최후의 수단: 원본 경로 반환
             return original_path
     
     def create_side_by_side_comparison(
@@ -250,18 +294,23 @@ class DesignGenerator:
             canvas.paste(original_resized, (20, 50))
             canvas.paste(improved_resized, (original_resized.width + 40, 50))
             
-            # 텍스트 추가 (PIL의 기본 폰트 사용)
+            # 텍스트 추가
             from PIL import ImageDraw
             draw = ImageDraw.Draw(canvas)
             
             draw.text((20, 20), "Original Design", fill='black')
             draw.text((original_resized.width + 40, 20), "Improved Design", fill='black')
             
+            # 구분선 추가
+            line_x = original_resized.width + 30
+            draw.line([(line_x, 0), (line_x, target_height + 100)], fill='lightgray', width=2)
+            
             # 저장
             if not output_path:
                 original_name = os.path.basename(original_path)
                 name_without_ext = os.path.splitext(original_name)[0]
-                output_dir = os.path.dirname(original_path) or 'test_samples'
+                output_dir = os.path.dirname(original_path) or 'output'
+                os.makedirs(output_dir, exist_ok=True)
                 output_path = os.path.join(output_dir, f"{name_without_ext}_comparison.png")
             
             canvas.save(output_path)
@@ -269,7 +318,10 @@ class DesignGenerator:
             return output_path
             
         except Exception as e:
-            print(f"[Generator Error] Comparison creation failed: {e}")
+            print(f"[Generator Error] Comparison creation failed: {type(e).__name__}: {e}")
+            import traceback
+            traceback.print_exc()
+            # 폴백: 개선된 이미지만 반환
             return improved_path
 
 
