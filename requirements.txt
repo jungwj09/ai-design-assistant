@@ -1,0 +1,29 @@
+# Core Dependencies
+openai>=1.12.0
+python-dotenv>=1.0.0
+
+# Image Processing
+Pillow>=10.0.0
+opencv-python>=4.8.0
+
+# ML & Transformers (Optional - for local CLIP)
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.30.0
+
+# Vector Operations
+numpy>=1.24.0
+scipy>=1.11.0
+
+# HTTP Requests
+requests>=2.31.0
+
+# CLI & Utilities
+tqdm>=4.65.0
+colorama>=0.4.6
+
+# Optional: For PDF processing in knowledge base
+PyPDF2>=3.0.0
+
+# Optional: For advanced text processing
+nltk>=3.8.0

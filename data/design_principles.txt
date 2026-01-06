@@ -1,0 +1,16 @@
+Design Principles and Best Practices
+
+Color Theory and Application:
+Colors evoke specific emotions and guide user attention effectively. Professional designs typically use a limited palette of 3-5 colors for consistency. The 60-30-10 rule is essential: 60% dominant color, 30% secondary color, and 10% accent color. High contrast between text and background ensures readability, with a minimum contrast ratio of 4.5:1 for body text and 3:1 for large text. Color psychology matters: blue conveys trust and professionalism, red creates urgency, green suggests growth and harmony, while yellow attracts attention but should be used sparingly.
+
+Typography and Hierarchy:
+Establish clear visual hierarchy through font size, weight, spacing, and color. Headings should be 2-3 times larger than body text. Limit font families to 2-3 maximum per design. Line height should be 1.5-1.6 times the font size for optimal readability. Use font weights strategically: bold for emphasis, regular for body, light for supporting text. Sans-serif fonts work well for digital interfaces, while serif fonts add formality and tradition.
+
+Layout and Composition:
+Follow established layout patterns: F-pattern for text-heavy content, Z-pattern for minimal designs with clear call-to-action. Grid systems create visual harmony and consistency. The rule of thirds helps position key elements effectively. Whitespace is not empty space—it's a crucial design element that provides breathing room and improves comprehension. Proper alignment creates a sense of unity and cohesion.
+
+Visual Hierarchy and Balance:
+Size, color, contrast, and positioning establish hierarchy. The most important elements should be the most prominent. Symmetrical balance creates formality and stability, while asymmetrical balance adds dynamism and interest. Ensure visual weight is distributed evenly to avoid a lopsided composition. Use proximity to group related elements and separate unrelated ones.
+
+Consistency and Patterns:
+Maintain consistent spacing, colors, typography, and component styles throughout the design. Design systems and style guides ensure consistency across multiple pages or screens. Reusable components reduce cognitive load and improve user experience. Establish clear patterns for interactive elements like buttons, links, and forms.
