@@ -1,9 +1,7 @@
-import torch
 import numpy as np
 from PIL import Image
 from typing import Dict, Tuple
 import os
-from transformers import CLIPProcessor, CLIPModel
 import openai
 import json
 import re
@@ -19,20 +17,15 @@ class SimilarityScorer:
         """
         Args:
             api_key: OpenAI API 키
-            use_local_clip: 로컬 CLIP 모델 사용 여부
+            use_local_clip: 로컬 CLIP 모델 사용 여부 (현재 지원하지 않음)
         """
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.use_local_clip = use_local_clip
+        self.use_local_clip = False  # 강제로 False 설정
         
         if use_local_clip:
-            print("[Scorer] Loading local CLIP model...")
-            self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-            self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.model.to(self.device)
-            print(f"[Scorer] CLIP loaded on {self.device}")
-        else:
-            print("[Scorer] Using OpenAI embeddings API")
+            print("[Scorer Warning] Local CLIP not supported. Using OpenAI API instead.")
+        
+        print("[Scorer] Using OpenAI embeddings API")
     
     def calculate_similarity(
         self, 
@@ -58,54 +51,10 @@ class SimilarityScorer:
         """
         print(f"[Scorer] Calculating similarity for intent: '{text_intent[:50]}...'")
         
-        if self.use_local_clip:
-            scores = self._calculate_with_clip(image_path, text_intent)
-        else:
-            scores = self._calculate_with_openai(image_path, text_intent, analysis_result)
+        scores = self._calculate_with_openai(image_path, text_intent, analysis_result)
         
         print(f"[Scorer] Overall Score: {scores['overall_score']:.2f}/100")
         return scores
-    
-    def _calculate_with_clip(self, image_path: str, text_intent: str) -> Dict[str, float]:
-        """
-        로컬 CLIP 모델을 사용한 유사도 계산
-        Late Fusion: 이미지/텍스트 임베딩을 독립적으로 추출 후 코사인 유사도 계산
-        """
-        image = Image.open(image_path).convert("RGB")
-        
-        inputs = self.processor(
-            text=[text_intent],
-            images=image,
-            return_tensors="pt",
-            padding=True
-        ).to(self.device)
-        
-        with torch.no_grad():
-            outputs = self.model(**inputs)
-            
-            # Late Fusion: 독립적으로 추출된 특징
-            image_embeds = outputs.image_embeds  # [1, 512]
-            text_embeds = outputs.text_embeds    # [1, 512]
-            
-            # 코사인 유사도 계산
-            image_embeds = image_embeds / image_embeds.norm(dim=-1, keepdim=True)
-            text_embeds = text_embeds / text_embeds.norm(dim=-1, keepdim=True)
-            
-            similarity = (image_embeds @ text_embeds.T).item()
-        
-        # 점수 정규화 (0-100)
-        overall_score = (similarity + 1) / 2 * 100  # [-1, 1] -> [0, 100]
-        
-        return {
-            'overall_score': overall_score,
-            'visual_alignment': overall_score * 0.95,  # 시뮬레이션
-            'semantic_alignment': overall_score * 1.05,
-            'detailed_scores': {
-                'color_match': overall_score * 0.9,
-                'layout_match': overall_score * 1.1,
-                'style_match': overall_score * 0.95
-            }
-        }
     
     def _extract_json_from_response(self, text: str) -> Dict:
         """

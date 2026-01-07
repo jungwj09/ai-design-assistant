@@ -1,6 +1,5 @@
 import numpy as np
 from PIL import Image
-import torch
 from typing import List, Dict, Tuple
 import base64
 from io import BytesIO
