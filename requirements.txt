@@ -1,19 +1,17 @@
-# Install basic requirements first
--r requirements.txt
+# Core Dependencies
+numpy>=1.24.0
+Pillow>=10.0.0
+openai>=1.0.0
+requests>=2.31.0
+python-dotenv>=1.0.0
 
-# ML & Transformers (for local CLIP model)
-# Note: Install PyTorch separately based on your system:
-# CPU: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-# CUDA 11.8: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
-# CUDA 12.1: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# Optional: ML & Transformers (for local CLIP model)
+# Uncomment if you want to use local CLIP instead of OpenAI API
+# torch>=2.0.0
+# torchvision>=0.15.0
+# transformers>=4.30.0
 
-torch>=2.0.0
-torchvision>=0.15.0
-transformers>=4.30.0
-
-# Optional: Advanced text processing
-scipy>=1.11.0
-nltk>=3.8.0
-
-# Optional: PDF processing for knowledge base
-PyPDF2>=3.0.0
+# Optional: Advanced features
+# scipy>=1.11.0
+# nltk>=3.8.0
+# PyPDF2>=3.0.0
