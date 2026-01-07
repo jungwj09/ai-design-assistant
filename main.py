@@ -3,6 +3,9 @@ import sys
 from pathlib import Path
 import argparse
 from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 sys.path.insert(0, str(Path(__file__).parent))
 
